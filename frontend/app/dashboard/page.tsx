@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Download, LockKeyhole, LogOut, RefreshCw, X } from "lucide-react";
-import { api, ApiError, spotlight, useApp } from "../providers";
+import { api, ApiError, forget, spotlight, useApp } from "../providers";
 import { df, local, money, nf, pct } from "../i18n";
 import { FLOW, Timeline, type Claim, type Status } from "../claims";
 
@@ -158,6 +158,8 @@ export default function Dashboard() {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [filter, setFilter] = useState<Status | "all">("all");
   const [q, setQ] = useState("");
+  const [query, setQuery] = useState(""); // q, debounced: search runs on the server across every claim
+  useEffect(() => { const id = setTimeout(() => setQuery(q.trim()), 250); return () => clearTimeout(id); }, [q]);
   const [open, setOpen] = useState<Claim | null>(null);
   const [offline, setOffline] = useState(false);
   const [auth, setAuth] = useState<"unknown" | "in" | "out">("unknown");
@@ -165,16 +167,16 @@ export default function Dashboard() {
   const [failed, setFailed] = useState(false);
   const close = useCallback(() => { setOpen(null); setFailed(false); }, []);
 
+  const list = `/claims?limit=200${filter === "all" ? "" : `&status=${filter}`}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
   const load = useCallback(async () => {
     try {
-      // ponytail: first 200 (the API max) newest claims, filtered client-side; move q/status server-side past that.
-      const [s, c] = await Promise.all([api<Stats>("/stats"), api<Claim[]>("/claims?limit=200")]);
+      const [s, c] = await Promise.all([api<Stats>("/stats"), api<Claim[]>(list)]);
       setStats(s); setClaims(c); setOffline(false); setAuth("in");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setAuth("out");
       else setOffline(true);
     }
-  }, []);
+  }, [list]);
   const out = auth === "out";
   useEffect(() => {
     if (out) return;
@@ -185,13 +187,10 @@ export default function Dashboard() {
   }, [load, out]);
   const logout = async () => {
     await api("/login", { method: "DELETE" }).catch(() => {});
-    setAuth("out"); setClaims([]); setStats(null); setOpen(null);
+    forget(); setAuth("out"); setClaims([]); setStats(null); setOpen(null);
   };
 
-  const rows = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return claims.filter((c) => (filter === "all" || c.status === filter) && (!s || `${c.code} ${c.name} ${c.plate} ${c.policy_no} ${local(lang, c.insurer)}`.toLowerCase().includes(s)));
-  }, [claims, filter, q, lang]);
+  const rows = claims; // filtered and searched by the API
 
   const change = async (s: Status) => {
     if (!open || busy) return;
@@ -301,11 +300,7 @@ export default function Dashboard() {
           ))}
         </div>
         {!rows.length && stats && <p className="center muted" style={{ padding: 32 }}>{t("empty")}</p>}
-        {stats && claims.length < stats.total && (
-          <p className="center tiny muted" style={{ padding: 16 }}>
-            {t("shownOf").replace("{n}", nf(lang, claims.length, 0)).replace("{m}", nf(lang, stats.total, 0))}
-          </p>
-        )}
+        {claims.length === 200 && <p className="center tiny muted" style={{ padding: 16 }}>{t("newest200")}</p>}
       </div>
 
       <AnimatePresence>{open && <Sheet key="sheet" c={open} busy={busy} failed={failed} onClose={close} onChange={change} />}</AnimatePresence>

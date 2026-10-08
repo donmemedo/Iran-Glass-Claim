@@ -2,7 +2,7 @@
 import os
 import re
 
-os.environ["INSURER_TOKEN"] = "test-token"
+os.environ["INSURER_TOKEN"] = "test-token-0123456789abcdef"
 from fastapi import HTTPException
 from pydantic import ValidationError
 
@@ -33,7 +33,7 @@ def denied(header):
         return False
     except HTTPException as exc:
         return exc.status_code == 401
-assert denied("") and denied("Bearer wrong") and denied("Bearer tést") and not denied("Bearer test-token")
+assert denied("") and denied("Bearer wrong") and denied("Bearer tést") and not denied("Bearer test-token-0123456789abcdef")
 
 # Public view is redacted.
 pub = PublicClaim.model_validate(next(iter(CLAIMS.values())).model_dump()).model_dump()
@@ -45,7 +45,8 @@ ok = dict(name="Sara", mobile="09121234567", policy_no="BD-1234", insurer="Iran 
 ClaimIn(**ok)
 ClaimIn(**ok | {"name": "سارا‌احمدی"})  # ZWNJ stays allowed
 for bad in ({"insurer": "<script>"}, {"size_cm": float("nan")}, {"size_cm": float("inf")},
-            {"name": "Sa‮ara"}, {"plate": "12\r\n34"}, {"name": "a\x00b"}):
+            {"name": "Sa\u202eara"}, {"plate": "12\r\n34"}, {"name": "a\x00b"}, {"plate": "12 B \u200f345 - 67"},
+            {"name": "Sa\u2028ra"}, {"mobile": "0912\u06f1234567"}, {"mobile": "0912\uff11234567"}):
     try:
         ClaimIn(**ok | bad)
         raise AssertionError(bad)
@@ -54,7 +55,7 @@ for bad in ({"insurer": "<script>"}, {"size_cm": float("nan")}, {"size_cm": floa
 
 # Rate limiter: 10-write burst per IP.
 BUCKETS.clear()
-assert all(allow("1.2.3.4", True) for _ in range(10)) and not allow("1.2.3.4", True) and allow("5.6.7.8", True)
+assert all(allow("1.2.3.4", 0.2, 10) for _ in range(10)) and not allow("1.2.3.4", 0.2, 10) and allow("5.6.7.8", 0.2, 10)
 
 try:
     from fastapi.testclient import TestClient
@@ -65,7 +66,7 @@ except (ImportError, RuntimeError):  # httpx missing: the HTTP checks below need
 if TestClient:
     BUCKETS.clear()
     cl = TestClient(main.app)
-    H = {"Authorization": "Bearer test-token"}
+    H = {"Authorization": "Bearer test-token-0123456789abcdef"}
     assert cl.get("/api/claims").status_code == 401
     assert cl.get("/api/stats").status_code == 401
     assert cl.get("/docs").status_code == 404 and cl.get("/openapi.json").status_code == 404

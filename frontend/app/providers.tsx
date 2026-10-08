@@ -86,9 +86,25 @@ export class ApiError extends Error {
   constructor(status: number) { super(`API ${status}`); this.status = status; }
 }
 
-/** Default cache mode on purpose: the browser revalidates with If-None-Match, so an unchanged list is a 304. */
+// ETags live here, in memory, not in the browser's disk cache: API responses are no-store because they carry
+// PII. A poll of unchanged data is still a 304 with an empty body. Cleared on logout and on any 401.
+const memo = new Map<string, { tag: string; body: unknown }>();
+export const forget = () => memo.clear();
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`/api${path}`, { ...init, headers: init?.body ? { "Content-Type": "application/json" } : undefined });
-  if (!r.ok) throw new ApiError(r.status);
-  return (r.status === 204 ? undefined : await r.json()) as T;
+  const get = !init?.method || init.method === "GET";
+  const hit = get ? memo.get(path) : undefined;
+  const headers: Record<string, string> = {};
+  if (init?.body) headers["Content-Type"] = "application/json";
+  if (hit) headers["If-None-Match"] = hit.tag;
+  const r = await fetch(`/api${path}`, { ...init, headers, cache: "no-store" });
+  if (r.status === 304 && hit) return hit.body as T;
+  if (!r.ok) {
+    if (r.status === 401) forget();
+    throw new ApiError(r.status);
+  }
+  const body = r.status === 204 ? undefined : await r.json();
+  const tag = r.headers.get("etag");
+  if (get && tag) memo.set(path, { tag, body });
+  return body as T;
 }

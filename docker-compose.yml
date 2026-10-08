@@ -29,8 +29,10 @@ services:
       API_URL: http://backend:8000
       INSURER_TOKEN: ${INSURER_TOKEN:?set INSURER_TOKEN in .env}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
-      TRUST_PROXY: ${TRUST_PROXY:-0}
-    ports: ["3003:3000"]
+      # Loopback only: put a TLS reverse proxy in front (README) that overwrites X-Forwarded-For.
+      # Exposing 3003 directly would let clients forge it; set TRUST_PROXY=0 if you ever do.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+    ports: ["127.0.0.1:3003:3000"]
     mem_limit: 512m
     tmpfs: ["/tmp", "/app/.next/cache"]
     healthcheck:

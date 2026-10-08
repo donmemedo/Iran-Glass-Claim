@@ -1,4 +1,5 @@
 """Iran Glass Claim API — repair-first glass claims for insurers (B2B2C)."""
+import hashlib
 import logging
 import os
 import random
@@ -21,9 +22,11 @@ app = FastAPI(title="Iran Glass Claim API", version="1.1.0", redoc_url=None,
               docs_url="/docs" if DOCS else None, openapi_url="/openapi.json" if DOCS else None)
 
 # Insurer-only endpoints need `Authorization: Bearer <INSURER_TOKEN>`. The Next.js proxy adds it after login.
-TOKEN = os.getenv("INSURER_TOKEN") or secrets.token_urlsafe(32)
-if not os.getenv("INSURER_TOKEN"):
-    log.warning("INSURER_TOKEN is not set; generated one for this run: %s", TOKEN)
+# Unset, short or the .env.example placeholder = fail closed: a random token nobody knows, never logged.
+TOKEN = os.getenv("INSURER_TOKEN", "")
+if len(TOKEN) < 24 or TOKEN == "change-me":
+    log.warning("INSURER_TOKEN is unset or weak (needs 24+ chars); insurer endpoints stay locked until it is set.")
+    TOKEN = secrets.token_urlsafe(32)
 
 Glass = Literal["windshield", "side", "rear", "sunroof"]
 Status = Literal["received", "approved", "scheduled", "in_service", "done", "rejected"]
@@ -54,13 +57,11 @@ def estimate(decision: str, glass: Glass, mobile: bool, adas: bool) -> dict:
     return {"total": round(total, 2), "avoided": round(avoided, 2)}
 
 
-# Control chars and bidi overrides spoof text in the dashboard/CSV. ZWNJ (U+200C) stays: Persian needs it.
-BIDI = set("‪‫‬‭‮⁦⁧⁨⁩")
-
-
+# Control chars, invisible format chars (bidi overrides/isolates/marks, zero-width space, BOM) and line/paragraph
+# separators can reorder or hide what staff see in the dashboard and CSV. ZWNJ/ZWJ stay: Persian needs them.
 def clean(s: str) -> str:
-    if any(unicodedata.category(ch) == "Cc" or ch in BIDI for ch in s):
-        raise ValueError("control characters are not allowed")
+    if any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") and ch not in "\u200c\u200d" for ch in s):
+        raise ValueError("control or invisible formatting characters are not allowed")
     return s
 
 
@@ -82,7 +83,7 @@ class Damage(BaseModel):
 
 class ClaimIn(Damage):
     name: Text = Field(min_length=2, max_length=80)
-    mobile: str = Field(pattern=r"^(\+98|0)?9\d{9}$")
+    mobile: str = Field(pattern=r"^(\+98|0)?9[0-9]{9}$")  # [0-9]: the Rust regex \d also matches Persian digits
     policy_no: Text = Field(min_length=4, max_length=30)
     plate: Text = Field(min_length=4, max_length=20)
 
@@ -177,7 +178,7 @@ def advance(claim: Claim, status: Status, at: datetime | None = None) -> None:
 
 
 def seed(n: int = 64) -> None:
-    rnd = random.Random(1405)
+    rnd = random.Random(1405)  # nosec B311: deterministic demo data, not a secret
     names = ["Sara Ahmadi", "Reza Karimi", "Maryam Hosseini", "Ali Rezaei", "Neda Moradi", "Hamid Jafari", "Leila Sadeghi", "Omid Rahimi"]
     cities = ["Tehran", "Karaj", "Isfahan", "Mashhad", "Shiraz", "Tabriz"]
     now = datetime.now(timezone.utc)
@@ -206,20 +207,21 @@ seed()
 DEMO_CODE = next(c.code for c in CLAIMS.values() if c.status == "done")  # for the track page's "sample" button
 
 # ---- abuse limits ---------------------------------------------------------------------------
-# Per-IP token buckets: (tokens per second, burst). The client IP comes from uvicorn, which only
-# honours X-Forwarded-For from --forwarded-allow-ips (the Next.js proxy).
-BUCKETS: dict[tuple[str, bool], tuple[float, float]] = {}
-LIMITS = {True: (0.2, 10), False: (5.0, 60)}  # keyed by "is a write"
+# Token buckets as (tokens per second, burst). The client IP comes from uvicorn, which only honours
+# X-Forwarded-For from --forwarded-allow-ips (the Next.js proxy, which only sends it with TRUST_PROXY=1).
+# ALL_WRITES caps anonymous writes whatever the IP key says, so spoofed or rotating IPs can't flood the store.
+BUCKETS: dict[str, tuple[float, float]] = {}
+PER_IP = {True: (0.2, 10), False: (5.0, 60)}  # keyed by "is a write"
+ALL_WRITES = (1.0, 60)
 
 
-def allow(ip: str, write: bool) -> bool:
-    rate, burst = LIMITS[write]
+def allow(key: str, rate: float, burst: float) -> bool:
     now = time.monotonic()
-    tokens, ts = BUCKETS.get((ip, write), (burst, now))
+    tokens, ts = BUCKETS.get(key, (burst, now))
     tokens = min(burst, tokens + (now - ts) * rate)
     if len(BUCKETS) > 10_000:  # ponytail: crude memory bound; an LRU per IP if this ever trips in practice
         BUCKETS.clear()
-    BUCKETS[(ip, write)] = (tokens - 1 if tokens >= 1 else tokens, now)
+    BUCKETS[key] = (tokens - 1 if tokens >= 1 else tokens, now)
     return tokens >= 1
 
 
@@ -272,9 +274,10 @@ app.add_middleware(BodyLimit)
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
-    ip = request.client.host if request.client else "?"
+    ip = (request.client.host if request.client else "?")[:45]  # 45 = longest IPv6 text; caps key memory
     write = request.method not in ("GET", "HEAD", "OPTIONS")
-    if request.url.path != "/api/health" and not is_insurer(request.headers.get("authorization", "")) and not allow(ip, write):
+    exempt = request.url.path == "/api/health" or is_insurer(request.headers.get("authorization", ""))
+    if not exempt and (not allow(f"{ip}:{write}", *PER_IP[write]) or (write and not allow("*", *ALL_WRITES))):
         return JSONResponse({"detail": "Too many requests"}, 429, headers={"Retry-After": "5", **SECURITY_HEADERS})
     response = await call_next(request)
     if request.url.path.startswith("/api"):
@@ -291,16 +294,19 @@ async def invalid(_: Request, exc: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def crash(_: Request, exc: Exception):
-    log.exception("Unhandled error", exc_info=exc)
-    return JSONResponse({"detail": "Internal error"}, 500)
+    return JSONResponse({"detail": "Internal error"}, 500)  # Starlette re-raises after this, so uvicorn logs the traceback
+
+
+BOOT = secrets.token_hex(8)  # makes ETags unique per process and hides the write counter
 
 
 def etag_hit(request: Request, response: Response, tag: str) -> Response | None:
-    """Sets a weak ETag; returns a ready 304 when the client already has this version."""
-    headers = {"ETag": f'W/"{tag}"', "Cache-Control": "private, no-cache"}
-    if request.headers.get("if-none-match") == headers["ETag"]:
-        return Response(status_code=304, headers=headers)
-    response.headers.update(headers)
+    """Sets a weak ETag; returns a ready 304 when the client already has this version.
+    Responses stay no-store: the frontend keeps the ETag and body in memory, never in the disk cache (PII)."""
+    etag = 'W/"%s"' % hashlib.sha256(f"{BOOT}:{tag}".encode()).hexdigest()[:20]
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    response.headers["ETag"] = etag
     return None
 
 

@@ -16,7 +16,9 @@ async function forward(req: Request, ctx: { params: Promise<{ path: string[] }> 
   if (body === null) return Response.json({ detail: "Payload too large" }, { status: 413 });
 
   // identity: the hop is local, so gzip here would only be undone by fetch. Next compresses for the browser.
-  const headers = new Headers({ "x-forwarded-for": clientIp(req.headers), "accept-encoding": "identity" });
+  const headers = new Headers({ "accept-encoding": "identity" });
+  const ip = clientIp(req.headers);
+  if (ip) headers.set("x-forwarded-for", ip); // untrusted: send nothing, the backend then sees one shared client
   for (const h of PASS_REQUEST) { const v = req.headers.get(h); if (v) headers.set(h, v); }
   if (validSession((await cookies()).get(COOKIE)?.value)) headers.set("authorization", `Bearer ${TOKEN}`);
 

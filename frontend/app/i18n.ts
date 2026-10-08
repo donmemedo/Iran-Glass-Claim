@@ -148,7 +148,7 @@ const dict = {
   timeline: ["تاریخچه", "History"],
   target: ["هدف: بالای", "Target: above"],
   refresh: ["به‌روزرسانی", "Refresh"],
-  shownOf: ["نمایش {n} پرونده تازه از {m} پرونده", "Showing the latest {n} of {m} claims"],
+  newest200: ["فقط ۲۰۰ پرونده تازه نمایش داده می‌شود. برای پیدا کردن پرونده‌های قدیمی‌تر جستجو کنید.", "Showing the newest 200 claims. Search to find older ones."],
   rejectAsk: ["این پرونده رد شود؟ این کار برگشت‌پذیر نیست.", "Reject this claim? This can't be undone."],
   cancel: ["انصراف", "Cancel"],
   changeFailed: ["وضعیت پرونده تغییر نکرد. دوباره تلاش کنید.", "The status didn't change. Please try again."],

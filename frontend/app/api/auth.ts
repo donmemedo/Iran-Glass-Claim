@@ -13,7 +13,9 @@ const same = (a: string, b: string) => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
-export const configured = () => Boolean(TOKEN && PASSWORD);
+// Short secrets or the .env.example placeholder fail closed: login answers 503 until real ones are set.
+// A 12+ char password, not the rate limits, is what makes guessing hopeless.
+export const configured = () => TOKEN.length >= 24 && PASSWORD.length >= 12 && ![TOKEN, PASSWORD].includes("change-me");
 // Comparing HMACs keeps both sides the same length, so the check leaks neither content nor length.
 export const checkPassword = (p: string) => configured() && same(sign(p), sign(PASSWORD));
 
@@ -28,14 +30,12 @@ export function validSession(v?: string) {
   return Boolean(exp && sig) && same(sig, sign(exp)) && Number(exp) > Date.now() / 1000;
 }
 
-// Next keeps a client-sent X-Forwarded-For (it only fills it in when absent), so without a reverse proxy the
-// value is attacker-chosen. TRUST_PROXY=1 means one sits in front and appends the real peer: take the right-most
-// hop. Otherwise the left-most value is a best-effort key; the spoof-proof guard is the global login cap below.
-const TRUST_PROXY = process.env.TRUST_PROXY === "1";
-export const clientIp = (h: Headers) => {
-  const hops = (h.get("x-forwarded-for") || "").split(",").map((s) => s.trim()).filter(Boolean);
-  return (TRUST_PROXY ? hops.at(-1) : hops[0]) || "unknown";
-};
+// Next keeps a client-sent X-Forwarded-For (it only fills it in when absent), so the header is attacker-chosen
+// unless a reverse proxy overwrites it. TRUST_PROXY=1 says one does: take its (right-most) hop. Without it there
+// is no trustworthy client IP, so callers get null and per-IP limits fall back to shared/global ones.
+export const TRUST_PROXY = process.env.TRUST_PROXY === "1";
+export const clientIp = (h: Headers) =>
+  TRUST_PROXY ? (h.get("x-forwarded-for") || "").split(",").map((s) => s.trim()).filter(Boolean).at(-1)?.slice(0, 45) || null : null;
 
 export const isHttps = (req: Request) => new URL(req.url).protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
 
@@ -63,14 +63,14 @@ export async function readBody(req: Request, limit = 64 * 1024): Promise<Uint8Ar
   }
 }
 
-// One shared password, so cap failures globally too: rotating IPs can't buy more than 30 guesses a minute.
-// Trade-off: a flood locks the login form (not existing sessions) for up to a minute.
+// Global ceiling on failed logins, whatever the IP: 300/min. High enough that holding it takes a sustained
+// 5 req/s flood (and existing sessions keep working), low enough to bound guessing if IPs rotate.
 const failures: number[] = [];
 export const recordFailure = () => { failures.push(Date.now()); };
 export function lockedOut() {
   const now = Date.now();
   while (failures.length && now - failures[0] > 60_000) failures.shift();
-  return failures.length >= 30;
+  return failures.length >= 300;
 }
 
 const tries = new Map<string, number[]>();

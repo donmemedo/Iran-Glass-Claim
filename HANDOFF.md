@@ -10,15 +10,40 @@ Branch `security-hardening`, pushed, with a draft PR open.
 - Backend fixes for every section 4 finding, with `backend/test_main.py` passing. Its HTTP block needs `httpx2`.
 - Frontend: `app/api/[...path]/route.ts` proxy, `app/api/login/route.ts` with an HMAC session cookie, per-IP and global login caps, CSP and security headers in `next.config.ts`, the `api()` change for ETag reuse, the dashboard (login card, logout, Reject confirm, error notices, focus trap, momentum projection, CSV-injection fix), the track and claim fixes, i18n, and the Apple HIG CSS (static aurora, reduced transparency, increased contrast, press feedback).
 - Infra: hardened compose, non-root images, `.env.example`, `public/.gitkeep`, committed wheels, untracked tsbuildinfo.
-- `npx tsc --noEmit` passes. `scripts/pentest.sh` gives 26 of 26 PASS against the fixed backend and 25 FAIL against `main` (results in the PR body).
+- `npx tsc --noEmit` passes. `scripts/pentest.sh` gives 26 of 26 PASS against the fixed backend and 22 of 26 FAIL against `main` (results in the PR body).
 - graphify: `graphify-out/` built, with 327 nodes and 13 communities. It reports a health warning of 21 dangling-endpoint edges. Communities are still unlabelled (Step 5) and the HTML export has not run.
 
+**Done in session 3 (2026-10-08 evening)**
+- Next.js upgraded from 16.3.6 to 16.4.0, plus `npm audit fix`. A `package-lock.json` now exists, and `npm audit` reports 0 vulnerabilities. pip-audit is clean.
+- bandit found literal bidi characters in `main.py` and `test_main.py`. They are now `\u` escapes.
+- semgrep found the token being logged. The backend now fails closed instead.
+- Review fixes so far:
+  - No-store on every API response, with the ETag cache kept in memory in `api()`. Logout also sends `Clear-Site-Data`.
+  - Per-boot hashed ETags.
+  - A global anonymous write ceiling of 60 burst and 1/s.
+  - `TRUST_PROXY` gating, a loopback-only frontend port, and a 45-character cap on the IP key.
+  - Weak or placeholder secrets fail closed (token 24+ characters, password 12+), and `.env.example` ships empty values.
+  - The global login cap is now 300/min, and the per-IP cap applies only when IPs can be trusted.
+  - Dashboard search and filtering run on the server.
+  - The mobile pattern uses `[0-9]`, and `clean()` rejects Cf, Zl and Zp except ZWNJ and ZWJ.
+- `scripts/pentest.sh` against the backend: 28 of 28 PASS.
+- The type check of the latest edits was still running and is NOT verified. Re-run `npx tsc --noEmit`.
+
 **Left**
-1. Read the results of the review workflow (run `wf_36a9d1b7-bc3`; it can be resumed from the session journal) and of the `/security-audit` fork. Apply the confirmed findings.
-2. Run `scripts/pentest.sh` through the Next proxy, with `PASSWORD=…` against `next start`. It has not run because the machine was too loaded for `next build` or `next dev`.
-3. Do a visual check at phone width in fa and en, in light and dark.
-4. graphify Steps 5 to 9: labels, `graphify export html`, and the manifest. Then run `graphify update .`.
-5. Write the ponytail-review list and the final report.
+1. Apply these confirmed review findings, which I checked against the code myself:
+   - `dashboard/page.tsx`: read `mobile` synchronously with `useState(() => matchMedia(...).matches)`.
+   - The drag gesture blocks scrolling in the Sheet. Start the drag only from the grabber with `useDragControls` and `dragListener={false}`, and remove `touch-action:none` from the mobile `.sheet`.
+   - After Cancel, Reject or reaching done, refocus the dialog.
+   - A late PATCH response must not re-open or swap the Sheet. Use `setOpen(o => o?.code === code ? updated : o)` and scope `failed` to the claim.
+   - Contrast: `.confirm p` and `.btn-bad` must reach AA, with rules for `prefers-contrast: more`.
+   - `track`: reset `rating` in `find()`, and add `role="status"` to the thanks text.
+   - `nav`: the language button's name must contain its visible text (WCAG 2.5.3).
+   - Login form: use `noValidate` with an inline `t("required")` message.
+   - i18n: «نسخه نمایشی» instead of «آزمایشی»; tooMany becomes «تلاش‌ها بیش از حد مجاز شد. یک دقیقه دیگر دوباره تلاش کنید.».
+   - `CountUp` should render `{format(0)}` on the server to avoid layout shift.
+2. Collect the results of the performance and infra review lenses (resume run `wf_36a9d1b7-bc3`).
+3. Run `next build`, then `next start` with `TRUST_PROXY=1`, and run the pen test through the proxy. Do the phone-width visual check.
+4. Fill the placeholders in `docs/SECURITY_REPORT.md` (pen-test table, SAST, review). Commit `graphify-out/` or run `graphify update .`. Update PR #1.
 
 ## 1. The original request
 
