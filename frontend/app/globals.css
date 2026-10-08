@@ -5,6 +5,7 @@
   --glass: rgba(255, 255, 255, .6); --glass-2: rgba(255, 255, 255, .82);
   --accent: #0071e3; --accent-2: #00b3c7; --accent-3: #7a5cff;
   --good: #1f9d55; --warn: #d97706; --bad: #e0342b;
+  --bad-ink: #b3261e; --bad-fill: #c42b21; /* AA-contrast red: text on tints, white-on-red buttons */
   --glow: rgba(0, 113, 227, .16);
   --shadow: 0 1px 1px rgba(0,0,0,.03), 0 8px 24px -8px rgba(0,0,0,.12), 0 32px 64px -24px rgba(0,0,0,.14);
   --aurora-o: .5;
@@ -21,6 +22,7 @@
     --glass: rgba(26, 26, 30, .52); --glass-2: rgba(30, 30, 34, .8);
     --accent: #2997ff; --accent-2: #3ee6f5; --accent-3: #a78bfa;
     --good: #30d158; --warn: #ffb340; --bad: #ff453a; --glow: rgba(41, 151, 255, .22);
+    --bad-ink: #ff6961; --bad-fill: #d70015;
     --shadow: 0 1px 1px rgba(0,0,0,.4), 0 16px 48px -12px rgba(0,0,0,.7);
     --aurora-o: .55; color-scheme: dark;
   }
@@ -31,6 +33,7 @@
   --glass: rgba(26, 26, 30, .52); --glass-2: rgba(30, 30, 34, .8);
   --accent: #2997ff; --accent-2: #3ee6f5; --accent-3: #a78bfa;
   --good: #30d158; --warn: #ffb340; --bad: #ff453a; --glow: rgba(41, 151, 255, .22);
+  --bad-ink: #ff6961; --bad-fill: #d70015;
   --shadow: 0 1px 1px rgba(0,0,0,.4), 0 16px 48px -12px rgba(0,0,0,.7);
   --aurora-o: .55; color-scheme: dark;
 }
@@ -352,7 +355,8 @@ tbody tr:hover { background: var(--line); }
 }
 .grabber { display: none; }
 @media (max-width: 760px) {
-  .sheet { top: auto; inset-inline: 0; bottom: 0; width: 100%; max-height: 88dvh; border-radius: 28px 28px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); touch-action: none; }
+  .sheet { top: auto; inset-inline: 0; bottom: 0; width: 100%; max-height: 88dvh; border-radius: 28px 28px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .drag-handle { touch-action: none; cursor: grab; } /* the only place a vertical pan drags instead of scrolling */
   .grabber { display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line-2); margin: -10px auto 14px; }
 }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 14px; margin: 18px 0; }
@@ -360,7 +364,7 @@ tbody tr:hover { background: var(--line); }
 
 .skeleton { background: linear-gradient(90deg, var(--line) 25%, var(--line-2) 50%, var(--line) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 10px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
-.notice { padding: 14px 16px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); font-weight: 600; margin-top: 16px; }
+.notice { padding: 14px 16px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad-ink); font-weight: 600; margin-top: 16px; }
 
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .45s; }
 
@@ -386,8 +390,8 @@ tbody tr:active { background: var(--line-2); transition: none; }
 .login .field { text-align: start; }
 .login .h2 { margin: 0; font-size: clamp(26px, 4vw, 34px); }
 .confirm { display: grid; gap: 12px; margin-top: 24px; padding: 16px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--bad) 10%, transparent); }
-.confirm p { margin: 0; font-weight: 600; color: var(--bad); }
-.btn-bad { background: var(--bad); color: #fff; }
+.confirm p { margin: 0; font-weight: 600; color: var(--bad-ink); }
+.btn-bad { background: var(--bad-fill); color: #fff; }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass, .btn-ghost, .sheet { background: var(--bg-2); backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -397,5 +401,7 @@ tbody tr:active { background: var(--line-2); transition: none; }
 @media (prefers-contrast: more) {
   .glass, .btn-ghost, .sheet, .input, .opt, .toggle { background: var(--bg-2); backdrop-filter: none; -webkit-backdrop-filter: none; border-color: var(--fg-2); }
   .muted, .lead, .field > span, .kpi span, .stats span, th, .tiny { color: var(--fg); }
+  .notice, .confirm { color: var(--fg); border: 2px solid var(--bad); }
+  .confirm p { color: var(--fg); }
   .aurora, .glass::before, .glass::after { display: none; }
 }

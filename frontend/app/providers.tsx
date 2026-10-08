@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MotionConfig } from "motion/react";
 import { Key, Lang, translate } from "./i18n";
 
@@ -50,8 +50,8 @@ export function CountUp({ to, format }: { to: number; format: (n: number) => str
   const value = useRef(0);
   const fmt = useRef(format);
   fmt.current = format;
-  // Re-format on every render (e.g. a language switch); React owns no children here, so it never overwrites this.
-  useEffect(() => { ref.current!.textContent = format(value.current); });
+  // Re-format after every render (e.g. a language switch puts React's format(0) back); layout effect = no flash.
+  useLayoutEffect(() => { ref.current!.textContent = format(value.current); });
   useEffect(() => {
     const el = ref.current!;
     const show = (n: number) => { value.current = n; el.textContent = fmt.current(n); };
@@ -71,7 +71,7 @@ export function CountUp({ to, format }: { to: number; format: (n: number) => str
     io.observe(el);
     return () => { io.disconnect(); cancelAnimationFrame(raf); };
   }, [to]);
-  return <span ref={ref} />;
+  return <span ref={ref}>{format(0)}</span>; // server-rendered start value: no blank stats, no layout shift
 }
 
 /** Tracks the pointer for the spotlight glow on `.glass` cards. */

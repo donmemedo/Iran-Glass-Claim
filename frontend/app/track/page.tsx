@@ -17,7 +17,7 @@ function Track() {
 
   const find = useCallback(async (q: string) => {
     if (!q.trim()) return;
-    setState("busy");
+    setState("busy"); setRating("idle");
     try {
       setC(await api<Claim>(`/claims/${encodeURIComponent(q.trim())}`)); setState("idle");
       router.replace(`/track?code=${encodeURIComponent(q.trim().toUpperCase())}`);
@@ -68,11 +68,11 @@ function Track() {
           <Timeline c={c} />
           {c.status === "done" && (
             <div className="center" style={{ marginTop: 28 }}>
-              <b>{c.rating ? t("thanks") : t("rateTitle")}</b>
+              <b role="status">{c.rating ? t("thanks") : t("rateTitle")}</b>
               <div className="stars">
                 {[1, 2, 3, 4, 5].map((r) => (
                   <button key={r} className={r <= (c.rating || 0) ? "on" : ""} onClick={() => rate(r)} aria-label={`${r}/5`}
-                    disabled={c.rating !== null || rating === "busy"} aria-pressed={r <= (c.rating || 0)}>
+                    disabled={c.rating !== null || rating === "busy"} aria-pressed={r === c.rating}>
                     <Star size={30} fill="currentColor" />
                   </button>
                 ))}

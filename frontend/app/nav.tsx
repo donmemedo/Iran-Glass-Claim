@@ -42,8 +42,9 @@ export function Nav() {
           {LINKS.map(([href, k]) => <Link key={href} href={href} aria-current={current(href)}>{t(k)}</Link>)}
         </nav>
         <div className="tools">
-          <button className="icon-btn lang" onClick={() => setLang(lang === "fa" ? "en" : "fa")} aria-label={t("language")}>
-            {lang === "fa" ? "EN" : "فا"}
+          <button className="icon-btn lang" onClick={() => setLang(lang === "fa" ? "en" : "fa")} title={t("language")}
+            aria-label={`${lang === "fa" ? "EN" : "فا"} · ${t("language")}`} /* name starts with the visible text (WCAG 2.5.3) */>
+            <span lang={lang === "fa" ? "en" : "fa"}>{lang === "fa" ? "EN" : "فا"}</span>
           </button>
           <button className="icon-btn" onClick={() => setTheme(NEXT_THEME[theme])} aria-label={`${t("theme")}: ${t(theme)}`} title={`${t("theme")}: ${t(theme)}`}>
             <ThemeIcon size={18} />

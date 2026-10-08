@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { ArrowRight, Download, LockKeyhole, LogOut, RefreshCw, X } from "lucide-react";
 import { api, ApiError, forget, spotlight, useApp } from "../providers";
 import { df, local, money, nf, pct } from "../i18n";
@@ -46,9 +46,11 @@ function Sheet({ c, busy, failed, onClose, onChange }: {
 }) {
   const { t, lang } = useApp();
   const ref = useRef<HTMLElement>(null);
-  const [mobile, setMobile] = useState(false);
+  const drag = useDragControls();
+  // Read synchronously: the Sheet only mounts on the client after a tap, and a first render with desktop
+  // x-props would enter on the wrong axis (and could freeze off-screen when the props flip).
+  const [mobile] = useState(() => matchMedia("(max-width: 760px)").matches);
   const [confirm, setConfirm] = useState(false);
-  useEffect(() => { setMobile(matchMedia("(max-width: 760px)").matches); }, []);
   useEffect(() => setConfirm(false), [c.status]);
   useEffect(() => {
     // Modal focus: move in, trap Tab, give focus back to the row that opened it.
@@ -65,6 +67,8 @@ function Sheet({ c, busy, failed, onClose, onChange }: {
     addEventListener("keydown", key);
     return () => { removeEventListener("keydown", key); back?.focus(); };
   }, [onClose]);
+  // Cancel, a successful reject or reaching "done" unmounts the focused button: keep focus inside the modal.
+  useEffect(() => { if (document.activeElement === document.body) ref.current?.focus(); });
   const next = FLOW[FLOW.indexOf(c.status) + 1];
   const side = lang === "fa" ? "-110%" : "110%";
   return (
@@ -73,13 +77,17 @@ function Sheet({ c, busy, failed, onClose, onChange }: {
       <motion.aside ref={ref} tabIndex={-1} className="sheet glass" role="dialog" aria-modal="true" aria-label={t("details")}
         initial={mobile ? { y: "100%" } : { x: side }} animate={mobile ? { y: 0 } : { x: 0 }} exit={mobile ? { y: "100%" } : { x: side }}
         transition={SPRING}
-        drag={mobile ? "y" : false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0.05, bottom: 0.8 }}
+        // Drag starts only from the grabber/header, so the body can still scroll to the actions below the fold.
+        drag={mobile ? "y" : false} dragListener={false} dragControls={drag}
+        dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0.05, bottom: 0.8 }}
         // Dismiss if the projected resting point is past half the sheet, so a short fast flick still closes it.
         onDragEnd={(_, i) => i.offset.y + project(i.velocity.y) > (ref.current?.offsetHeight ?? 600) / 2 && onClose()}>
-        <div className="grabber" />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span className="mono" style={{ fontSize: 18, fontWeight: 800 }}>{c.code}</span>
-          <button className="icon-btn" onClick={onClose} aria-label={t("close")}><X size={18} /></button>
+        <div className="drag-handle" onPointerDown={(e) => mobile && drag.start(e)}>
+          <div className="grabber" />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className="mono" style={{ fontSize: 18, fontWeight: 800 }}>{c.code}</span>
+            <button className="icon-btn" onClick={onClose} aria-label={t("close")}><X size={18} /></button>
+          </div>
         </div>
         <span className={`pill st-${c.status}`} style={{ marginTop: 10 }}>{t(c.status)}</span>
         <dl className="kv">
@@ -119,11 +127,12 @@ function Sheet({ c, busy, failed, onClose, onChange }: {
 
 function Login({ onDone }: { onDone: () => void }) {
   const { t } = useApp();
-  const [state, setState] = useState<"idle" | "busy" | 401 | 429 | 503 | "err">("idle");
-  const msg = { 401: t("badPassword"), 429: t("tooMany"), 503: t("loginOff"), err: t("error") } as const;
+  const [state, setState] = useState<"idle" | "busy" | "empty" | 401 | 429 | 503 | "err">("idle");
+  const msg = { empty: t("required"), 401: t("badPassword"), 429: t("tooMany"), 503: t("loginOff"), err: t("error") } as const;
   return (
-    <form className="login glass" onSubmit={async (e) => {
+    <form className="login glass" noValidate onSubmit={async (e) => {
       e.preventDefault();
+      if (!String(new FormData(e.currentTarget).get("password") || "")) return setState("empty");
       setState("busy");
       try {
         await api("/login", { method: "POST", body: JSON.stringify({ password: new FormData(e.currentTarget).get("password") }) });
@@ -137,9 +146,9 @@ function Login({ onDone }: { onDone: () => void }) {
       <h1 className="h2">{t("navDash")}</h1>
       <p className="muted" style={{ margin: 0 }}>{t("loginSub")}</p>
       <label className="field"><span>{t("password")}</span>
-        <input className="input" name="password" type="password" autoComplete="current-password" required autoFocus dir="ltr"
-          aria-invalid={state === 401} aria-describedby="login-err" />
-        <span className="err" id="login-err" role="alert">{typeof state === "number" || state === "err" ? msg[state] : ""}</span>
+        <input className="input" name="password" type="password" autoComplete="current-password" autoFocus dir="ltr"
+          aria-invalid={state === 401 || state === "empty"} aria-describedby="login-err" />
+        <span className="err" id="login-err" role="alert">{state === "idle" || state === "busy" ? "" : msg[state]}</span>
       </label>
       <button className="btn btn-primary" disabled={state === "busy"} aria-busy={state === "busy"}>{t("login")}</button>
     </form>
@@ -163,9 +172,10 @@ export default function Dashboard() {
   const [open, setOpen] = useState<Claim | null>(null);
   const [offline, setOffline] = useState(false);
   const [auth, setAuth] = useState<"unknown" | "in" | "out">("unknown");
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const close = useCallback(() => { setOpen(null); setFailed(false); }, []);
+  // Scoped to a claim code: a late response must never touch a different (or a dismissed) sheet.
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const close = useCallback(() => setOpen(null), []);
 
   const list = `/claims?limit=200${filter === "all" ? "" : `&status=${filter}`}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
   const load = useCallback(async () => {
@@ -193,15 +203,17 @@ export default function Dashboard() {
   const rows = claims; // filtered and searched by the API
 
   const change = async (s: Status) => {
-    if (!open || busy) return;
-    setBusy(true); setFailed(false);
+    if (!open || busy === open.code) return;
+    const code = open.code;
+    setBusy(code); setFailed(null);
     try {
-      setOpen(await api<Claim>(`/claims/${encodeURIComponent(open.code)}`, { method: "PATCH", body: JSON.stringify({ status: s }) }));
+      const updated = await api<Claim>(`/claims/${encodeURIComponent(code)}`, { method: "PATCH", body: JSON.stringify({ status: s }) });
+      setOpen((o) => (o?.code === code ? updated : o));
       load();
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setAuth("out");
-      setFailed(true);
-    } finally { setBusy(false); }
+      setFailed(code);
+    } finally { setBusy((b) => (b === code ? null : b)); }
   };
 
   const exportCsv = () => {
@@ -303,7 +315,7 @@ export default function Dashboard() {
         {claims.length === 200 && <p className="center tiny muted" style={{ padding: 16 }}>{t("newest200")}</p>}
       </div>
 
-      <AnimatePresence>{open && <Sheet key="sheet" c={open} busy={busy} failed={failed} onClose={close} onChange={change} />}</AnimatePresence>
+      <AnimatePresence>{open && <Sheet key="sheet" c={open} busy={busy === open.code} failed={failed === open.code} onClose={close} onChange={change} />}</AnimatePresence>
     </div>
   );
 }

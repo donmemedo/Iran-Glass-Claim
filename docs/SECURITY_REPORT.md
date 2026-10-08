@@ -75,11 +75,47 @@ Steal PII or manipulate payouts
 
 `scripts/pentest.sh` was run against the backend directly. The before run used the code on `main`, and the after run used this branch.
 
-<!-- PENTEST -->
+| ID | Probe | Expected | `main` | This branch |
+| --- | --- | --- | --- | --- |
+| authz-01 | list claims (PII) without login | 401 | 200 ✗ | 401 ✓ |
+| authz-01 | search by plate/policy without login | 401 | 200 ✗ | 401 ✓ |
+| authz-01 | full insurer stats without login | 401 | 200 ✗ | 401 ✓ |
+| authz-02 | PATCH status without login | 401 | 200 ✗ | 401 ✓ |
+| authz-04 | code format: CSPRNG, 8 unambiguous symbols | 1 | 0 ✗ | 1 ✓ |
+| authz-04 | public claim view leaks no name/mobile/plate | 0 | 1 ✗ | 0 ✓ |
+| authz-05 | re-rate an already rated claim | 409 | 409 ✓ | 409 ✓ |
+| authz-01 | list claims with insurer login | 200 | 200 ✓ | 200 ✓ |
+| authz-03 | skip steps: received -> done | 409 | 200 ✗ | 409 ✓ |
+| authz-03 | one step: received -> approved | 200 | 200 ✓ | 200 ✓ |
+| authz-03 | reopen: approved -> received | 409 | 200 ✗ | 409 ✓ |
+| authz-03 | reject, then revive: rejected -> scheduled | 409 | 200 ✗ | 409 ✓ |
+| perf | unchanged list with If-None-Match | 304 | 200 ✗ | 304 ✓ |
+| cache | PII list is never stored (Cache-Control) | 1 | not probed | 1 ✓ |
+| perf | list gzip: 44479 B -> 4811 B | 1 | 0 ✗ | 1 ✓ |
+| res-03 | 70 KB request body | 413 | 422 ✗ | 413 ✓ |
+| res-05 | unknown insurer with HTML | 422 | 201 ✗ | 422 ✓ |
+| res-05 | bidi override in name | 422 | 201 ✗ | 422 ✓ |
+| res-05 | NUL byte in plate | 422 | 201 ✗ | 422 ✓ |
+| res-06 | NaN size (used to 500) | 422 | 500 ✗ | 422 ✓ |
+| res-06 | 1e400 photos (used to 500) | 422 | 500 ✗ | 422 ✓ |
+| res-08 | Swagger UI | 404 | 200 ✗ | 404 ✓ |
+| res-08 | OpenAPI schema | 404 | 200 ✗ | 404 ✓ |
+| authz-07 | CORS preflight from evil origin allowed | 0 | 1 ✗ | 0 ✓ |
+| res-09 | nosniff header on API | 1 | 0 ✗ | 1 ✓ |
+| traversal | dot-dot segments past /api | 40[04] | 404 ✓ | 404 ✓ |
+| res-01 | 12 rapid anonymous writes hit the limiter | 1 | 0 ✗ | 1 ✓ |
+| res-01 | 70 writes from rotating spoofed IPs hit a cap | 1 | not probed | 1 ✓ |
+
+On `main`, 22 probes fail. The `authz-05` pass on `main` is an artefact: the unauthenticated PATCH just before it had already rejected the sample claim, so the rating was refused for a different reason. The two "not probed" rows were added after the review. The gzip row reports sizes on `main` as uncompressed 44.6 KB with no `Content-Encoding`.
 
 ## 5. Static analysis and dependencies
 
-<!-- SAST -->
+| Tool | Scope | Result | Action |
+| --- | --- | --- | --- |
+| bandit 1.9 | `backend/` | 2 high (B613 Trojan Source), 1 low B311, 1 low B105, the rest B101 asserts in the test file | **Fixed** B613: literal bidi characters in `main.py` and `test_main.py` became `\u` escapes. B311 is deterministic demo seed data (`# nosec` with the reason). B105 and B101 are a test fixture and test asserts. |
+| semgrep (`p/security-audit`, `p/owasp-top-ten`, `p/secrets`, 352 rules) | backend, frontend, scripts, compose | 1: the generated `INSURER_TOKEN` was logged | **Fixed**: the token is never logged, and weak or placeholder secrets now fail closed |
+| npm audit | `frontend/` | First: no lockfile (reproducibility risk). With a lockfile: 3 high. `next` 16.3.6 had 6 advisories, including image-optimizer SSRF and SSG/ISR cache poisoning; `sharp` <0.35.5 (librsvg CVE); `source-map-js` (DoS) | **Fixed**: `package-lock.json` added, `next` upgraded to 16.4.0 (pinned exactly), `npm audit fix`. Now 0 vulnerabilities |
+| pip-audit | `backend/requirements.txt` | No known vulnerabilities | — |
 
 ## 6. Fixes and the performance each one carries
 

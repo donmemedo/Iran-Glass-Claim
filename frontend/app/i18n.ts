@@ -148,7 +148,7 @@ const dict = {
   timeline: ["تاریخچه", "History"],
   target: ["هدف: بالای", "Target: above"],
   refresh: ["به‌روزرسانی", "Refresh"],
-  newest200: ["فقط ۲۰۰ پرونده تازه نمایش داده می‌شود. برای پیدا کردن پرونده‌های قدیمی‌تر جستجو کنید.", "Showing the newest 200 claims. Search to find older ones."],
+  newest200: ["جدیدترین ۲۰۰ پرونده نمایش داده می‌شود. برای پیدا کردن پرونده‌های قدیمی‌تر، جستجو کنید.", "Showing the newest 200 claims. Search to find older ones."],
   rejectAsk: ["این پرونده رد شود؟ این کار برگشت‌پذیر نیست.", "Reject this claim? This can't be undone."],
   cancel: ["انصراف", "Cancel"],
   changeFailed: ["وضعیت پرونده تغییر نکرد. دوباره تلاش کنید.", "The status didn't change. Please try again."],
@@ -158,13 +158,13 @@ const dict = {
   login: ["ورود", "Log in"], logout: ["خروج", "Log out"],
   loginSub: ["برای دیدن پرونده‌ها، رمز عبور پیش‌خوان را بنویسید.", "Enter the panel password to see claims."],
   badPassword: ["رمز عبور نادرست است", "That password isn't right"],
-  tooMany: ["تعداد تلاش‌ها زیاد شد. یک دقیقه دیگر دوباره امتحان کنید.", "Too many attempts. Try again in a minute."],
+  tooMany: ["تلاش‌ها بیش از حد مجاز شد. یک دقیقه دیگر دوباره تلاش کنید.", "Too many attempts. Try again in a minute."],
   loginOff: ["ورود به پیش‌خوان روی این سرور راه‌اندازی نشده است", "Panel login isn't set up on this server"],
 
   // Shell
   language: ["زبان", "Language"],
   tabs: ["بخش‌ها", "Sections"],
-  photosLocal: ["در این نسخه آزمایشی، عکس‌ها فقط روی دستگاه شما نمایش داده می‌شوند و ارسال نمی‌شوند.", "In this demo, photos stay on your device. Only their count is sent."],
+  photosLocal: ["در این نسخه نمایشی، عکس‌ها فقط روی دستگاه شما می‌مانند و ارسال نمی‌شوند.", "In this demo, photos stay on your device. Only their count is sent."],
 } satisfies Record<string, [string, string]>;
 
 export type Key = keyof typeof dict;
