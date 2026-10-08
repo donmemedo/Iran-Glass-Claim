@@ -1,15 +1,41 @@
+# Secrets come from .env (see .env.example); compose refuses to start without them.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  pids_limit: 256
+  tmpfs: ["/tmp"]
+
 services:
   backend:
+    <<: *hardened
     build: ./backend
-    ports: ["8003:8000"]
+    environment:
+      INSURER_TOKEN: ${INSURER_TOKEN:?set INSURER_TOKEN in .env}
+    # Loopback only, for debugging; the frontend reaches the backend over the compose network.
+    ports: ["127.0.0.1:8003:8000"]
+    mem_limit: 256m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
       retries: 5
   frontend:
+    <<: *hardened
     build:
       context: ./frontend
       args: { API_URL: "http://backend:8000" }
+    environment:
+      API_URL: http://backend:8000
+      INSURER_TOKEN: ${INSURER_TOKEN:?set INSURER_TOKEN in .env}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
     ports: ["3003:3000"]
+    mem_limit: 512m
+    tmpfs: ["/tmp", "/app/.next/cache"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      retries: 5
     depends_on:
       backend: { condition: service_healthy }

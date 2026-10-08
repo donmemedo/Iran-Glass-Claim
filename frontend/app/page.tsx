@@ -118,7 +118,7 @@ function Demo() {
 export default function Home() {
   const { t, lang } = useApp();
   const [live, setLive] = useState({ repair_rate: 58, csat: 91, avoided: 520 });
-  useEffect(() => { api<typeof live>("/stats").then(setLive).catch(() => {}); }, []);
+  useEffect(() => { api<typeof live>("/stats/public").then(setLive).catch(() => {}); }, []);
 
   const offers = [
     { i: Wrench, c: "b1", title: t("o1t"), d: t("o1d") },

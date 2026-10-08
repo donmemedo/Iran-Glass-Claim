@@ -61,11 +61,12 @@ main { position: relative; z-index: 1; padding-bottom: calc(96px + env(safe-area
 
 /* ───────── Aurora backdrop ───────── */
 .aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: var(--aurora-o); transition: opacity .6s; }
-.aurora i { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(90px); animation: drift 28s var(--ease) infinite alternate; }
-.aurora i:nth-child(1) { background: radial-gradient(circle, var(--accent) 0, transparent 62%); top: -25vmax; inset-inline-start: -15vmax; }
-.aurora i:nth-child(2) { background: radial-gradient(circle, var(--accent-2) 0, transparent 60%); top: 10vmax; inset-inline-end: -25vmax; animation-duration: 34s; animation-delay: -8s; }
-.aurora i:nth-child(3) { background: radial-gradient(circle, var(--accent-3) 0, transparent 60%); bottom: -35vmax; inset-inline-start: 20vmax; animation-duration: 40s; animation-delay: -16s; opacity: .7; }
-@keyframes drift { to { transform: translate3d(8vmax, 6vmax, 0) scale(1.15) rotate(20deg); } }
+/* Static on purpose: a full-viewport moving layer is a vestibular trigger (Apple HIG), and three 60vmax
+   blur(90px) layers repainting forever cost low-end phones real frames. Soft gradient stops replace the blur. */
+.aurora i { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; }
+.aurora i:nth-child(1) { background: radial-gradient(circle, color-mix(in srgb, var(--accent) 70%, transparent) 0, transparent 70%); top: -25vmax; inset-inline-start: -15vmax; }
+.aurora i:nth-child(2) { background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 70%, transparent) 0, transparent 68%); top: 10vmax; inset-inline-end: -25vmax; }
+.aurora i:nth-child(3) { background: radial-gradient(circle, color-mix(in srgb, var(--accent-3) 70%, transparent) 0, transparent 68%); bottom: -35vmax; inset-inline-start: 20vmax; opacity: .7; }
 
 /* ───────── Materials ───────── */
 .glass {
@@ -367,4 +368,34 @@ tbody tr:hover { background: var(--line); }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   .reveal { opacity: 1; transform: none; }
   .crack, .impact { animation: none; opacity: 0; }
+}
+
+/* ───────── Apple HIG pass ───────── */
+/* Never stack light translucency on translucency: controls on a glass card become solid. */
+.glass .btn-ghost { background: var(--bg-2); backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Feedback on press, not release. */
+tbody tr:active { background: var(--line-2); transition: none; }
+.stars button:active { transform: scale(.88); transition-duration: .1s; }
+.code:active { transform: scale(.98); }
+.car .part:focus-visible { outline: none; stroke: var(--fg); stroke-width: 3; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { rotate: 360deg; } }
+
+.login { max-width: 420px; margin: clamp(32px, 8vw, 96px) auto 0; padding: clamp(24px, 5vw, 36px); display: grid; gap: 14px; text-align: center; }
+.login .badge-ico { margin: 0 auto 4px; }
+.login .field { text-align: start; }
+.login .h2 { margin: 0; font-size: clamp(26px, 4vw, 34px); }
+.confirm { display: grid; gap: 12px; margin-top: 24px; padding: 16px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.confirm p { margin: 0; font-weight: 600; color: var(--bad); }
+.btn-bad { background: var(--bad); color: #fff; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .btn-ghost, .sheet { background: var(--bg-2); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .scrim { background: rgba(0, 0, 0, .5); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .aurora { display: none; }
+}
+@media (prefers-contrast: more) {
+  .glass, .btn-ghost, .sheet, .input, .opt, .toggle { background: var(--bg-2); backdrop-filter: none; -webkit-backdrop-filter: none; border-color: var(--fg-2); }
+  .muted, .lead, .field > span, .kpi span, .stats span, th, .tiny { color: var(--fg); }
+  .aurora, .glass::before, .glass::after { display: none; }
 }

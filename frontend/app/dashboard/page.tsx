@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, Download, RefreshCw, X } from "lucide-react";
-import { api, spotlight, useApp } from "../providers";
+import { ArrowRight, Download, LockKeyhole, LogOut, RefreshCw, X } from "lucide-react";
+import { api, ApiError, spotlight, useApp } from "../providers";
 import { df, local, money, nf, pct } from "../i18n";
 import { FLOW, Timeline, type Claim, type Status } from "../claims";
 
@@ -37,26 +37,45 @@ function Donut({ data }: { data: Record<Status, number> }) {
   );
 }
 
-function Sheet({ c, onClose, onChange }: { c: Claim; onClose: () => void; onChange: (s: Status) => void }) {
+// Apple's momentum projection (Designing Fluid Interfaces): where a flick would come to rest.
+const project = (velocity: number, rate = 0.998) => ((velocity / 1000) * rate) / (1 - rate);
+const SPRING = { type: "spring", bounce: 0, duration: 0.4 } as const; // critically damped: opening isn't a flick
+
+function Sheet({ c, busy, failed, onClose, onChange }: {
+  c: Claim; busy: boolean; failed: boolean; onClose: () => void; onChange: (s: Status) => void;
+}) {
   const { t, lang } = useApp();
+  const ref = useRef<HTMLElement>(null);
   const [mobile, setMobile] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   useEffect(() => { setMobile(matchMedia("(max-width: 760px)").matches); }, []);
+  useEffect(() => setConfirm(false), [c.status]);
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    addEventListener("keydown", esc);
-    return () => removeEventListener("keydown", esc);
+    // Modal focus: move in, trap Tab, give focus back to the row that opened it.
+    const back = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return onClose();
+      if (e.key !== "Tab" || !ref.current) return;
+      const f = ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), [href], input");
+      const first = f[0], last = f[f.length - 1], at = document.activeElement;
+      if (e.shiftKey && (at === first || at === ref.current)) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first?.focus(); }
+    };
+    addEventListener("keydown", key);
+    return () => { removeEventListener("keydown", key); back?.focus(); };
   }, [onClose]);
   const next = FLOW[FLOW.indexOf(c.status) + 1];
   const side = lang === "fa" ? "-110%" : "110%";
   return (
     <>
       <motion.div className="scrim" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
-      <motion.aside className="sheet glass" role="dialog" aria-modal="true" aria-label={t("details")}
+      <motion.aside ref={ref} tabIndex={-1} className="sheet glass" role="dialog" aria-modal="true" aria-label={t("details")}
         initial={mobile ? { y: "100%" } : { x: side }} animate={mobile ? { y: 0 } : { x: 0 }} exit={mobile ? { y: "100%" } : { x: side }}
-        transition={{ type: "spring", bounce: 0.15, duration: 0.45 }}
+        transition={SPRING}
         drag={mobile ? "y" : false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0.05, bottom: 0.8 }}
-        // Project the flick forward (Apple's momentum rule) so a quick swipe dismisses even if short.
-        onDragEnd={(_, i) => i.offset.y + i.velocity.y * 0.2 > 140 && onClose()}>
+        // Dismiss if the projected resting point is past half the sheet, so a short fast flick still closes it.
+        onDragEnd={(_, i) => i.offset.y + project(i.velocity.y) > (ref.current?.offsetHeight ?? 600) / 2 && onClose()}>
         <div className="grabber" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span className="mono" style={{ fontSize: 18, fontWeight: 800 }}>{c.code}</span>
@@ -77,16 +96,61 @@ function Sheet({ c, onClose, onChange }: { c: Claim; onClose: () => void; onChan
         </dl>
         <h3 className="h3">{t("timeline")}</h3>
         <Timeline c={c} />
-        {next && c.status !== "rejected" && (
-          <div className="hero-cta" style={{ marginTop: 24 }}>
-            <button className="btn btn-primary" onClick={() => onChange(next)}>{t("advance")}: {t(next)}<ArrowRight size={18} className="flip" /></button>
-            <button className="btn btn-ghost btn-danger" onClick={() => onChange("rejected")}>{t("reject")}</button>
+        {failed && <div className="notice" role="alert">{t("changeFailed")}</div>}
+        {next && c.status !== "rejected" && (confirm ? (
+          // Rejection is final on the server, so it gets a confirmation (Apple: confirm only what can't be undone).
+          <div className="confirm" role="alertdialog" aria-label={t("rejectAsk")}>
+            <p>{t("rejectAsk")}</p>
+            <div className="hero-cta" style={{ marginTop: 0 }}>
+              <button className="btn btn-bad" disabled={busy} onClick={() => onChange("rejected")}>{t("reject")}</button>
+              <button className="btn btn-ghost" disabled={busy} onClick={() => setConfirm(false)} autoFocus>{t("cancel")}</button>
+            </div>
           </div>
-        )}
+        ) : (
+          <div className="hero-cta" style={{ marginTop: 24 }}>
+            <button className="btn btn-primary" disabled={busy} aria-busy={busy} onClick={() => onChange(next)}>{t("advance")}: {t(next)}<ArrowRight size={18} className="flip" /></button>
+            <button className="btn btn-ghost btn-danger" disabled={busy} onClick={() => setConfirm(true)}>{t("reject")}</button>
+          </div>
+        ))}
       </motion.aside>
     </>
   );
 }
+
+function Login({ onDone }: { onDone: () => void }) {
+  const { t } = useApp();
+  const [state, setState] = useState<"idle" | "busy" | 401 | 429 | 503 | "err">("idle");
+  const msg = { 401: t("badPassword"), 429: t("tooMany"), 503: t("loginOff"), err: t("error") } as const;
+  return (
+    <form className="login glass" onSubmit={async (e) => {
+      e.preventDefault();
+      setState("busy");
+      try {
+        await api("/login", { method: "POST", body: JSON.stringify({ password: new FormData(e.currentTarget).get("password") }) });
+        onDone();
+      } catch (x) {
+        const s = x instanceof ApiError ? x.status : 0;
+        setState(s === 401 || s === 429 || s === 503 ? s : "err");
+      }
+    }}>
+      <div className="badge-ico b1"><LockKeyhole size={24} /></div>
+      <h1 className="h2">{t("navDash")}</h1>
+      <p className="muted" style={{ margin: 0 }}>{t("loginSub")}</p>
+      <label className="field"><span>{t("password")}</span>
+        <input className="input" name="password" type="password" autoComplete="current-password" required autoFocus dir="ltr"
+          aria-invalid={state === 401} aria-describedby="login-err" />
+        <span className="err" id="login-err" role="alert">{typeof state === "number" || state === "err" ? msg[state] : ""}</span>
+      </label>
+      <button className="btn btn-primary" disabled={state === "busy"} aria-busy={state === "busy"}>{t("login")}</button>
+    </form>
+  );
+}
+
+// Quote every cell and neutralise spreadsheet formulas (CSV injection): plate and policy number are user input.
+const cell = (v: unknown) => {
+  const s = String(v ?? "");
+  return `"${(/^[=+\-@\t\r]/.test(s) ? "'" + s : s).replace(/"/g, '""')}"`;
+};
 
 export default function Dashboard() {
   const { t, lang } = useApp();
@@ -96,14 +160,33 @@ export default function Dashboard() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Claim | null>(null);
   const [offline, setOffline] = useState(false);
+  const [auth, setAuth] = useState<"unknown" | "in" | "out">("unknown");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const close = useCallback(() => { setOpen(null); setFailed(false); }, []);
 
   const load = useCallback(async () => {
     try {
-      const [s, c] = await Promise.all([api<Stats>("/stats"), api<Claim[]>("/claims")]);
-      setStats(s); setClaims(c); setOffline(false);
-    } catch { setOffline(true); }
+      // ponytail: first 200 (the API max) newest claims, filtered client-side; move q/status server-side past that.
+      const [s, c] = await Promise.all([api<Stats>("/stats"), api<Claim[]>("/claims?limit=200")]);
+      setStats(s); setClaims(c); setOffline(false); setAuth("in");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) setAuth("out");
+      else setOffline(true);
+    }
   }, []);
-  useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
+  const out = auth === "out";
+  useEffect(() => {
+    if (out) return;
+    load();
+    // Unchanged data comes back as a 304 (ETag), and hidden tabs don't poll at all.
+    const id = setInterval(() => !document.hidden && load(), 15000);
+    return () => clearInterval(id);
+  }, [load, out]);
+  const logout = async () => {
+    await api("/login", { method: "DELETE" }).catch(() => {});
+    setAuth("out"); setClaims([]); setStats(null); setOpen(null);
+  };
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -111,17 +194,24 @@ export default function Dashboard() {
   }, [claims, filter, q, lang]);
 
   const change = async (s: Status) => {
-    if (!open) return;
-    const c = await api<Claim>(`/claims/${open.code}`, { method: "PATCH", body: JSON.stringify({ status: s }) });
-    setOpen(c); load();
+    if (!open || busy) return;
+    setBusy(true); setFailed(false);
+    try {
+      setOpen(await api<Claim>(`/claims/${encodeURIComponent(open.code)}`, { method: "PATCH", body: JSON.stringify({ status: s }) }));
+      load();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) setAuth("out");
+      setFailed(true);
+    } finally { setBusy(false); }
   };
 
   const exportCsv = () => {
     const head = ["code", "insurer", "policy_no", "plate", "glass", "decision", "status", "amount_m_toman", "created_at"];
-    const body = rows.map((c) => [c.code, c.insurer, c.policy_no, c.plate, c.glass, c.decision, c.status, c.total, c.created_at].join(","));
+    const body = rows.map((c) => [c.code, c.insurer, c.policy_no, c.plate, c.glass, c.decision, c.status, c.total, c.created_at].map(cell).join(","));
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob(["﻿" + [head.join(","), ...body].join("\n")], { type: "text/csv" }));
+    a.href = URL.createObjectURL(new Blob(["﻿" + [head.map(cell).join(","), ...body].join("\r\n")], { type: "text/csv;charset=utf-8" }));
     a.download = "settlement.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href));
   };
 
   const max = Math.max(...(stats?.daily || [1]), 1);
@@ -136,6 +226,8 @@ export default function Dashboard() {
     [t("kSla"), pct(lang, stats.sla)],
   ] : [];
 
+  if (out) return <div className="wrap"><Login onDone={() => setAuth("unknown")} /></div>;
+
   return (
     <div className="wrap">
       <div className="dash-head">
@@ -144,11 +236,12 @@ export default function Dashboard() {
           <p className="muted" style={{ margin: 0 }}>{t("dashSub")}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="icon-btn" onClick={load} aria-label="Refresh"><RefreshCw size={18} /></button>
-          <button className="btn btn-ghost btn-sm" onClick={exportCsv}><Download size={16} />{t("exportCsv")}</button>
+          <button className="icon-btn" onClick={load} aria-label={t("refresh")} title={t("refresh")}><RefreshCw size={18} /></button>
+          <button className="btn btn-ghost btn-sm" onClick={exportCsv} disabled={!rows.length}><Download size={16} />{t("exportCsv")}</button>
+          <button className="icon-btn" onClick={logout} aria-label={t("logout")} title={t("logout")}><LogOut size={18} className="flip" /></button>
         </div>
       </div>
-      {offline && <div className="notice">{t("offline")}</div>}
+      {offline && <div className="notice" role="alert">{t("offline")}</div>}
 
       <div className="kpis">
         {stats ? kpis.map(([k, v, sub]) => (
@@ -187,7 +280,8 @@ export default function Dashboard() {
           <thead><tr>{(["colCode", "colDriver", "insurer", "colGlass", "colDecision", "colAmount", "colStatus", "colDate"] as const).map((k) => <th key={k}>{t(k)}</th>)}</tr></thead>
           <tbody>
             {rows.map((c) => (
-              <tr key={c.code} onClick={() => setOpen(c)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setOpen(c)}>
+              <tr key={c.code} onClick={() => setOpen(c)} tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(c); } }}>
                 <td className="mono">{c.code}</td><td>{c.name}</td><td>{local(lang, c.insurer)}</td><td>{t(c.glass)}</td>
                 <td style={{ color: c.decision === "repair" ? "var(--good)" : "var(--warn)", fontWeight: 600 }}>{t(c.decision)}</td>
                 <td className="num">{money(lang, c.total)}</td>
@@ -207,9 +301,14 @@ export default function Dashboard() {
           ))}
         </div>
         {!rows.length && stats && <p className="center muted" style={{ padding: 32 }}>{t("empty")}</p>}
+        {stats && claims.length < stats.total && (
+          <p className="center tiny muted" style={{ padding: 16 }}>
+            {t("shownOf").replace("{n}", nf(lang, claims.length, 0)).replace("{m}", nf(lang, stats.total, 0))}
+          </p>
+        )}
       </div>
 
-      <AnimatePresence>{open && <Sheet key="sheet" c={open} onClose={() => setOpen(null)} onChange={change} />}</AnimatePresence>
+      <AnimatePresence>{open && <Sheet key="sheet" c={open} busy={busy} failed={failed} onClose={close} onChange={change} />}</AnimatePresence>
     </div>
   );
 }

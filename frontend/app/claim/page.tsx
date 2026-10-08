@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, Camera, Check, Copy, Truck, TriangleAlert } from "lucide-react";
 import { api, useApp } from "../providers";
@@ -50,6 +50,15 @@ export default function ClaimPage() {
     name: "", mobile: "", policy_no: "", insurer: INSURERS[0], plate: "", service: "center" as "center" | "mobile", city: "Tehran",
   });
   const [photos, setPhotos] = useState<string[]>([]);
+  // Object URLs pin the image bytes in memory until revoked; free them on reset and on leaving the page.
+  const urls = useRef<string[]>([]);
+  const dropPhotos = () => { urls.current.forEach(URL.revokeObjectURL); urls.current = []; setPhotos([]); };
+  useEffect(() => () => urls.current.forEach(URL.revokeObjectURL), []);
+  const addPhotos = (files: FileList | null) => {
+    const added = Array.from(files || []).slice(0, 10 - photos.length).map((f) => URL.createObjectURL(f));
+    urls.current.push(...added);
+    setPhotos((p) => [...p, ...added]);
+  };
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
@@ -100,8 +109,8 @@ export default function ClaimPage() {
           <div><span className="muted">{t("insurerPays")}</span><b className="num">{money(lang, done.total)}</b></div>
         </div>
         <div className="hero-cta" style={{ justifyContent: "center" }}>
-          <Link className="btn btn-primary" href={`/track?code=${done.code}`}>{t("trackIt")}</Link>
-          <button className="btn btn-ghost" onClick={() => { setDone(null); setStep(0); setPhotos([]); setTouched(false); setCopied(false); }}>{t("newClaim")}</button>
+          <Link className="btn btn-primary" href={`/track?code=${encodeURIComponent(done.code)}`}>{t("trackIt")}</Link>
+          <button className="btn btn-ghost" onClick={() => { setDone(null); setStep(0); dropPhotos(); setTouched(false); setCopied(false); }}>{t("newClaim")}</button>
         </div>
       </div>
     </div>
@@ -143,9 +152,10 @@ export default function ClaimPage() {
                   <div className="thumbs">
                     {photos.map((p) => <img key={p} src={p} alt="" />)}
                     <label><Camera size={22} /><input className="sr" type="file" accept="image/*" capture="environment" multiple
-                      onChange={(e) => setPhotos((p) => [...p, ...Array.from(e.target.files || []).map((x) => URL.createObjectURL(x))].slice(0, 10))} />
+                      onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
                       <span className="sr">{t("addPhoto")}</span></label>
                   </div>
+                  <span className="tiny muted">{t("photosLocal")}</span>
                 </div>
                 <div className={`verdict ${ok ? "ok" : "no"}`} aria-live="polite">
                   {ok ? <BadgeCheck size={28} /> : <TriangleAlert size={28} />}
