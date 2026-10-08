@@ -42,7 +42,7 @@ export function Nav() {
           {LINKS.map(([href, k]) => <Link key={href} href={href} aria-current={current(href)}>{t(k)}</Link>)}
         </nav>
         <div className="tools">
-          <button className="icon-btn lang" onClick={() => setLang(lang === "fa" ? "en" : "fa")} aria-label="Language">
+          <button className="icon-btn lang" onClick={() => setLang(lang === "fa" ? "en" : "fa")} aria-label={t("language")}>
             {lang === "fa" ? "EN" : "فا"}
           </button>
           <button className="icon-btn" onClick={() => setTheme(NEXT_THEME[theme])} aria-label={`${t("theme")}: ${t(theme)}`} title={`${t("theme")}: ${t(theme)}`}>
@@ -51,7 +51,7 @@ export function Nav() {
           <Link href="/claim" className="btn btn-primary btn-sm">{t("ctaClaim")}</Link>
         </div>
       </header>
-      <nav className="tabbar glass" aria-label="Tabs">
+      <nav className="tabbar glass" aria-label={t("tabs")}>
         {LINKS.map(([href, , short, Icon]) => (
           <Link key={href} href={href} aria-current={current(href)}><Icon size={22} strokeWidth={1.8} />{t(short)}</Link>
         ))}

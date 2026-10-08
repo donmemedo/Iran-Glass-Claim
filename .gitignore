@@ -3,6 +3,10 @@ node_modules
 .venv
 __pycache__
 *.db
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
 
 Docs
 .idea
